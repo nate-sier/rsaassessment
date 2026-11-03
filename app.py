@@ -84,5 +84,14 @@ with st.sidebar:
             except Exception as err:
                 st.error('Restore blocked: ' + str(err))
 
-# Run the existing app on every Streamlit rerun (not a Python import cached once).
-runpy.run_path(str(ROOT / 'manual_review_app.py'), run_name='__main__')
+# Navigation is above the date-specific review flow, so norms remain accessible
+# even before a particular day's raw GPS data has been downloaded.
+with st.sidebar:
+    page = st.radio('App page', ['Assessment review', 'Normative quadrants'], key='app_page')
+
+if page == 'Normative quadrants':
+    from normative_quadrants_v39 import render
+    render()
+else:
+    # Run existing review on every rerun, preserving its saved correction logic.
+    runpy.run_path(str(ROOT / 'manual_review_app.py'), run_name='__main__')
