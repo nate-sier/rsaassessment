@@ -17,13 +17,14 @@ import streamlit as st
 from chronological_peak_review import chronological_insert, PeakInsertionError
 from export_name_override import normalize_export_name, validate_export_name, apply_export_names, default_trial_names, trial_export_names, partition_saved_trial_docs
 from workspace_portability import default_locations
+from sheet_sync_v38 import summaries_from_csv, worksheet_from_secrets, write_rows, SPREADSHEET_ID, WORKSHEET_GID
 
 ROOT = Path(__file__).resolve().parent
 BACKEND = ROOT / 'statsports_backend_v22.py'
 MPH = 2.2369362921
 BIN_S = .2
 
-st.title('STATSports | Three-set sprint peak review — Cloud v37')
+st.title('STATSports | Three-set sprint peak review — Cloud v38')
 st.caption('3 sets × 10 reps · 17-second starts · Manual changes require review and remain separate from raw data.')
 
 def backend():
@@ -761,6 +762,32 @@ else:
             file_name=f'STATSports_{label}.csv',mime='text/csv',
             use_container_width=True,key=f'selected_csv_{day}_{scope_hash}')
         st.caption('Export saved to '+str(scoped_root))
+        st.markdown('#### Google Sheets | Save reviewed 3×10×10 results')
+        st.caption('Uses the exact reviewed repetitions in the selected CSV, including saved manual peaks and export-only athlete names. '
+                   'Only complete 30-repetition trials can be written. No automatic write occurs.')
+        summary_rows, sheet_errors = summaries_from_csv(raw_csv, day, selected_keys)
+        if summary_rows:
+            st.dataframe(pd.DataFrame(summary_rows, columns=[
+                'Date','Athlete','Best mph','Mean mph','Top 3 mph','Worst mph',
+                'Peak to Avg Drop %','Best to Worst Drop %','Set 1 Mean mph',
+                'Set 2 Mean mph','Set 3 Mean mph','Set 3 vs 1 Decline %','Speed CV %']),
+                hide_index=True, use_container_width=True)
+        if sheet_errors:
+            st.warning('These trials cannot be saved until resolved: ' + ' | '.join(sheet_errors[:12]))
+        st.caption(f'Destination: spreadsheet {SPREADSHEET_ID} · tab gid={WORKSHEET_GID}')
+        replace_existing=st.checkbox('Replace an existing athlete + date row (otherwise skip)',
+            value=False,key=f'sheet_replace_{day}_{scope_hash}')
+        if st.button('Write reviewed results to Google Sheet',type='primary',
+            disabled=not summary_rows or bool(sheet_errors),
+            key=f'write_sheet_{day}_{scope_hash}'):
+            try:
+                with st.spinner('Checking existing athlete + date records and syncing…'):
+                    worksheet=worksheet_from_secrets(st.secrets)
+                    result=write_rows(worksheet,summary_rows,replace=replace_existing)
+                st.success(f"Sheet sync complete: {result['added']} added, {result['replaced']} replaced, {result['skipped']} skipped.")
+            except Exception as exc:
+                st.error('Google Sheets sync did not complete: '+str(exc))
+
 if corrections_path.exists():
     with st.expander('Full history of saved peak edits'):
         st.json(read_corrections()['history'])
